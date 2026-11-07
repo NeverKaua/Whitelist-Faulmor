@@ -2334,11 +2334,7 @@ local v13 = nil;
     end
 
     v10 = createTextButton2({1, -72}, {0.5, -132}, "")
-    v10.Visible = visible
-
-    v10.MouseButton1Click:Connect(function()
-        klausHubV52.toggleMenu()
-    end)
+    v10.Visible = false -- Hide extra circular launcher; keep the Klaus Hub capsule.
 
     v6.MouseButton1Click:Connect(function()
         klausHubV52.alive = false
@@ -2394,7 +2390,7 @@ local v13 = nil;
             opacity = 67,
             scale = 100,
             menuKey = "LeftControl",
-            island = false,
+            island = true,
             preset = "klaus",
         }
 
@@ -2466,8 +2462,9 @@ local v13 = nil;
             return nil
         end)(theme.menuKey)
 
-        local leftControl = v40 or Enum.KeyCode.LeftControl
+        local leftControl = Enum.KeyCode.LeftControl
         klausHubV52.menuKey = leftControl
+        theme.menuKey = leftControl.Name
         local v41 = nil
         local v42 = nil
 
@@ -2961,8 +2958,6 @@ do
         local hrp = c:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
         local v = hrp.AssemblyLinearVelocity
-        local hg = hrp.Position.Y - groundY()
-        if v.Y > 5 or hg > 8 then return end
         local d = h.MoveDirection
         if d.Magnitude > 0 then
             hrp.AssemblyLinearVelocity = Vector3.new(d.X * SP, v.Y, d.Z * SP)
@@ -3255,58 +3250,6 @@ do
     end)
 end
 
-_G.MineESPEnabled = false
-do
-    local d = {}
-    local function lbl(n)
-        local u = n:match("SubspaceTripmine(.+)")
-        if not u then return "Unknown" end
-        local p = Players:FindFirstChild(u)
-        return p and (p.DisplayName .. " (@" .. u .. ")") or u
-    end
-    local function clr(m)
-        if not d[m] then return end
-        pcall(function() if d[m].box then d[m].box:Destroy() end end)
-        pcall(function() if d[m].bb then d[m].bb:Destroy() end end)
-        d[m] = nil
-    end
-    local function add(m)
-        if not _G.MineESPEnabled or not m or not m:IsA("BasePart")
-            or not m.Name:match("^SubspaceTripmine") or d[m] then return end
-        local b = Instance.new("SelectionBox")
-        b.Adornee = m; b.Color3 = K_ACCENT; b.LineThickness = 0.06
-        b.SurfaceTransparency = 1; b.Parent = m
-        local bb = Instance.new("BillboardGui")
-        bb.Adornee = m; bb.Size = UDim2.new(0, 220, 0, 34)
-        bb.StudsOffset = Vector3.new(0, 2.5, 0); bb.AlwaysOnTop = true; bb.Parent = m
-        watchKlausMinecraftFont(bb)
-        local l = Instance.new("TextLabel")
-        l.Size = UDim2.new(1, 0, 1, 0); l.BackgroundTransparency = 1
-        l.Text = lbl(m.Name) .. "'s Subspace Mine"
-        l.TextColor3 = K_ACCENT; l.TextStrokeColor3 = Color3.new(0, 0, 0)
-        l.TextStrokeTransparency = 0; l.Font = Enum.Font.GothamBold
-        l.TextSize = 14; l.Parent = bb
-        d[m] = { box = b, bb = bb }
-    end
-    local function bind(f)
-        f.ChildAdded:Connect(add); f.ChildRemoved:Connect(clr)
-        for _, c in ipairs(f:GetChildren()) do add(c) end
-    end
-    local f = workspace:FindFirstChild("ToolsAdds")
-    if f then bind(f) end
-    workspace.ChildAdded:Connect(function(c)
-        if _G.MineESPEnabled and c.Name == "ToolsAdds" then bind(c) end
-    end)
-    task.spawn(function()
-        while klausHubV52.alive do
-            task.wait(1)
-            if not _G.MineESPEnabled then
-                for m in pairs(d) do clr(m) end
-            end
-        end
-    end)
-end
-
 _G.GummyBypassEnabled = false
 do
     local grace = 0
@@ -3506,6 +3449,7 @@ do
             if item:IsA("BasePart") then
                 baselineSizes[item] = item.Size
                 baselineLocalTransparency[item] = item.LocalTransparencyModifier
+                pcall(function() item.LocalTransparencyModifier = 0 end)
             elseif item:IsA("Attachment") then
                 baselineAttachmentFrames[item] = item.CFrame
             elseif item:IsA("Decal") then
@@ -3610,18 +3554,7 @@ do
             if morphModel and not morphModel.Parent then morphModel = nil end
         end
 
-        if morphModel and morphSeenAt > 0 and now - morphSeenAt < 3 then
-            for _, item in ipairs(character:GetDescendants()) do
-                if item:IsA("BasePart") or item:IsA("Decal") then
-                    pcall(function() item.LocalTransparencyModifier = 1 end)
-                end
-            end
-        elseif morphSeenAt > 0 then
-            morphSeenAt = 0
-            for item, transparency in pairs(baselineLocalTransparency) do
-                if item.Parent then pcall(function() item.LocalTransparencyModifier = transparency end) end
-            end
-        end
+        -- Avoid forcing LocalTransparencyModifier: that made the local character invisible.
     end
 
     if localPlayer.Character then captureCharacter(localPlayer.Character) end
@@ -3764,11 +3697,6 @@ do
     end)
 end
 
-local v46 = fn14(settings2, "", theme.island, function(island)
-    theme.island = island
-    screenGui2.Enabled = island
-    tbl4.save()
-end)
 
 qapSettingsToggle = fn14(settings2, "Quick Admin Panel", false, function(enabled)
     if klausHubV52.setQAPVisible then klausHubV52.setQAPVisible(enabled) end
@@ -3783,7 +3711,6 @@ fn14(settings2, "Anti die", _G.AntiDie, function(v) _G.AntiDie = v end)
 fn14(settings2, "Anti ragdoll", _G.AntiRagdoll, function(v) _G.AntiRagdoll = v end)
 fn14(settings2, "Infinite jump", _G.InfiniteJumpEnabled, function(v) _G.InfiniteJumpEnabled = v end)
 fn14(settings2, "Quick pickup", _G.QuickPickup, function(v) _G.QuickPickup = v end)
-fn14(settings2, "Mine esp", _G.MineESPEnabled, function(v) _G.MineESPEnabled = v end)
 fn14(settings2, "Anti gummy", _G.GummyBypassEnabled, function(v) _G.GummyBypassEnabled = v end)
 fn14(settings2, "Anti turret", _G.AutoTurretEnabled, function(v) _G.AutoTurretEnabled = v end)
 fn14(settings2, "Auto destroy doge", _G.AutoDestroyDogeEnabled, function(v) _G.AutoDestroyDogeEnabled = v end)
@@ -3978,12 +3905,10 @@ fn14(settings2, "Aimbot", _G.AimbotEnabled, function(v) _G.AimbotEnabled = v end
                 theme.opacity = 100
                 theme.scale = 100
                 theme.menuKey = "LeftControl"
-                theme.island = true
                 theme.preset = "klaus"
                 klausHubV52.menuKey = Enum.KeyCode.LeftControl
                 v45.Text = "LEFTCONTROL"
                 screenGui2.Enabled = true
-                v46.set(true)
                 fn28()
                 fn29()
                 fn36(fn31("klaus"))
@@ -3998,8 +3923,7 @@ fn14(settings2, "Aimbot", _G.AimbotEnabled, function(v) _G.AimbotEnabled = v end
                     pcall(function()
                         fn36(fn31("klaus"))
                         screenGui2.Enabled = true
-                        v46.set(true)
-                        v41.set("100")
+                                v41.set("100")
                         v42.set("100")
                         tbl4.save()
                     end)
@@ -4008,7 +3932,7 @@ fn14(settings2, "Aimbot", _G.AimbotEnabled, function(v) _G.AimbotEnabled = v end
         end)
 
         fn29()
-        screenGui2.Enabled = theme.island
+        screenGui2.Enabled = true
         theme.accent = nil
         fn36(fn31(theme.preset))
 
@@ -10661,13 +10585,14 @@ local function resetActionsNow()
 
     resetActionRequestId = resetActionRequestId + 1
     local requestId = resetActionRequestId
-    resetAction.Text = "Reset"
-
-    -- Use the same full sequence as Reset on balloon.
-    local ok = pcall(KlausReset)
-    if not ok or not resetBusy then
-        resetAction.Text = "Reset"
-    end
+    resetAction.Text = "Resetting..."
+    -- Run the same KlausReset sequence asynchronously, as Reset on balloon does.
+    task.spawn(function()
+        local ok = pcall(KlausReset)
+        if not ok or not resetBusy then
+            if resetAction and resetAction.Parent then resetAction.Text = "Reset" end
+        end
+    end)
 
     task.delay(2.8, function()
         if requestId == resetActionRequestId and resetAction and resetAction.Parent then
@@ -10699,13 +10624,6 @@ local function bindAction(button, callback)
         task.delay(0.45, function() dispatchLocked = false end)
     end
     button.Activated:Connect(dispatch)
-    button.MouseButton1Click:Connect(dispatch)
-    button.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
-            dispatch()
-        end
-    end)
 end
 bindAction(flashAction, fn95)
 bindAction(blockAction, blockNearestReez)
@@ -11242,67 +11160,3 @@ _G.KlausESPShadow = {
 }
 
 startShadow()
-
-local Players    = game:GetService("Players")
-local RunService = game:GetService("RunService")
-
-local LocalPlayer = Players.LocalPlayer
-
--- ► Config
-local SPEED = 160   -- velocidade (studs/s)
-
--- ► Detecta se é uma tool de "voo"/tapete
-local function isCarpetTool(tool)
-    if not tool or not tool:IsA("Tool") then return false end
-    local n = tool.Name:lower()
-    return n:find("carpet", 1, true)
-        or n:find("broom", 1, true)
-        or n:find("wing", 1, true)
-        or n:find("sleigh", 1, true)
-        or n:find("waverider", 1, true)
-        or n:find("hover", 1, true)
-        or n:find("flying", 1, true)
-end
-
--- ► Loop principal
-local connection = RunService.Heartbeat:Connect(function()
-    local char = LocalPlayer.Character
-    if not char then return end
-
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local ut  = char:FindFirstChild("UpperTorso")
-    if not hum or not ut then return end
-
-    -- Verifica se está com tapete equipado
-    local equipped = false
-    for _, t in ipairs(char:GetChildren()) do
-        if isCarpetTool(t) then
-            equipped = true
-            break
-        end
-    end
-
-    if not equipped then return end
-
-    -- Aplica velocidade na direção do movimento
-    local dir = hum.MoveDirection
-    if dir.Magnitude > 0 then
-        ut.AssemblyLinearVelocity = Vector3.new(
-            dir.X * SPEED,
-            ut.AssemblyLinearVelocity.Y,
-            dir.Z * SPEED
-        )
-    else
-        ut.AssemblyLinearVelocity = Vector3.new(
-            0,
-            ut.AssemblyLinearVelocity.Y,
-            0
-        )
-    end
-end)
-
--- ► Cleanup ao executar de novo
-if _G.__KlausAutoCarpetSpeed and _G.__KlausAutoCarpetSpeed.Disconnect then
-    pcall(function() _G.__KlausAutoCarpetSpeed:Disconnect() end)
-end
-_G.__KlausAutoCarpetSpeed = connection
