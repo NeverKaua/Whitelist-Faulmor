@@ -4613,7 +4613,7 @@ end;
     local HttpService = game:GetService("HttpService")
 
     local tbl3 = {
-        speed = 650,
+        speed = 700,
         cornerSpeed = 120,
         cornerZone = 8,
         brake = 2500,
@@ -4621,7 +4621,7 @@ end;
         carpetSettle = 0.15,
         arriveSettle = 0.15,
         blockOwner = true,
-        bypassDefender = false,
+        bypassDefender = true,
         targetOpen = true,
         actionsPos = {0.5, 0, 0.5, 0},
         actionsOpen = false,
