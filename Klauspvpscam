@@ -10576,21 +10576,227 @@ local function resetPlayerReez()
     return resetAccepted
 end
 
+-- =========================================================
+-- LUXAR RESET (integrado ao botão Reset da Actions)
+-- =========================================================
+local LuxarReset
+LuxarReset = (function()
+    local Net = ReplicatedStorage:WaitForChild("Packages", 30):WaitForChild("Net", 30)
+
+    -- SHA-256
+    local bit32 = bit32
+    local band, bxor, bnot = bit32.band, bit32.bxor, bit32.bnot
+    local rrotate, rshift  = bit32.rrotate, bit32.rshift
+
+    local SHA256_K = {
+        1116352408, 1899447441, 3049323471, 3921009573, 961987163, 1508970993, 2453635748, 2870763221,
+        3624381080, 310598401, 607225278, 1426881987, 1925078388, 2162078206, 2614888103, 3248222580,
+        3835390401, 4022224774, 264347078, 604807628, 770255983, 1249150122, 1555081692, 1996064986,
+        2554220882, 2821834349, 2952996808, 3210313671, 3336571891, 3584528711, 113926993, 338241895,
+        666307205, 773529912, 1294757372, 1396182291, 1695183700, 1986661051, 2177026350, 2456956037,
+        2730485921, 2820302411, 3259730800, 3345764771, 3516065817, 3600352804, 4094571909, 275423344,
+        430227734, 506948616, 659060556, 883997877, 958139571, 1322822218, 1537002063, 1747873779,
+        1955562222, 2024104815, 2227730452, 2361852424, 2428436474, 2756734187, 3204031479, 3329325298,
+    }
+
+    local function sha256Blocks(hash, message, first, last)
+        local words = table.create(64, 0)
+        for offset = first or 1, last or #message, 64 do
+            for i = 1, 16 do
+                local p = offset + (i - 1) * 4
+                local a, b, c, d = string.byte(message, p, p + 3)
+                words[i] = a * 16777216 + b * 65536 + c * 256 + d
+            end
+            for i = 17, 64 do
+                local a, b = words[i - 15], words[i - 2]
+                local s0 = bxor(rrotate(a, 7), rrotate(a, 18), rshift(a, 3))
+                local s1 = bxor(rrotate(b, 17), rrotate(b, 19), rshift(b, 10))
+                words[i] = (words[i - 16] + s0 + words[i - 7] + s1) % 4294967296
+            end
+            local a, b, c, d, e, f, g, h = table.unpack(hash, 1, 8)
+            for i = 1, 64 do
+                local S1 = bxor(rrotate(e, 6), rrotate(e, 11), rrotate(e, 25))
+                local ch = bxor(band(e, f), band(bnot(e), g))
+                local t1 = (h + S1 + ch + SHA256_K[i] + words[i]) % 4294967296
+                local S0 = bxor(rrotate(a, 2), rrotate(a, 13), rrotate(a, 22))
+                local maj = bxor(band(a, b), band(a, c), band(b, c))
+                local t2 = (S0 + maj) % 4294967296
+                h, g, f, e, d, c, b, a = g, f, e, (d + t1) % 4294967296, c, b, a, (t1 + t2) % 4294967296
+            end
+            local v = {a, b, c, d, e, f, g, h}
+            for i = 1, 8 do
+                hash[i] = (hash[i] + v[i]) % 4294967296
+            end
+        end
+    end
+
+    local function sha256(message)
+        local hash = {1779033703, 3144134277, 1013904242, 2773480762, 1359893119, 2600822924, 528734635, 1541459225}
+        local len = #message
+        local rem = len % 64
+        if len >= 64 then sha256Blocks(hash, message, 1, len - rem) end
+        local padEnd = band(rem + 32, 4294967232)
+        local tail   = rem == 0 and "" or message:sub(-rem)
+        local pad    = string.rep("\0", (padEnd - rem - 9) % 64)
+        local block  = tail .. "\128" .. pad .. string.pack(">I4I4", math.floor(len / 536870912), (len * 8) % 4294967296)
+        sha256Blocks(hash, block, 1, #block)
+        local out = table.create(8)
+        for i = 1, 8 do out[i] = string.format("%08x", hash[i]) end
+        return table.concat(out)
+    end
+
+    local function scrambleName(name, job)
+        local out, j = {}, 0
+        for i = 1, #name do
+            local c = name:sub(i, i)
+            if c == "/" then
+                out[#out + 1] = c
+            else
+                j += 1
+                out[#out + 1] = string.char((c:byte() - 32 + job:byte((j - 1) % #job + 1)) % 95 + 32)
+            end
+        end
+        return table.concat(out)
+    end
+
+    local cachedSalt = nil
+    local GUID_PATTERN = "^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"
+
+    local function readSalt()
+        if cachedSalt then return cachedSalt end
+        if not Net then return nil end
+        local fn = nil
+        if getloadedmodules then
+            local ok, mods = pcall(getloadedmodules)
+            if ok and mods then
+                for _, m in ipairs(mods) do
+                    if m:IsA("ModuleScript") and (m == Net or Net:IsAncestorOf(m)) then
+                        local okR, mod = pcall(require, m)
+                        if okR and type(mod) == "table" then
+                            fn = rawget(mod, "RemoteEvent") or rawget(mod, "RemoteFunction")
+                            if type(fn) == "function" then break end
+                            fn = nil
+                        end
+                    end
+                end
+            end
+        end
+        if not fn then return nil end
+        local env = getfenv and getfenv(fn)
+        if env then
+            local s = rawget(env, "UGCClothesStorage")
+            if type(s) == "string" and #s == 36 then cachedSalt = s; return s end
+            for _, v in pairs(env) do
+                if type(v) == "string" and v:match(GUID_PATTERN) then cachedSalt = v; return v end
+            end
+        end
+        if getupvalues then
+            local ok, uvs = pcall(getupvalues, fn)
+            if ok and uvs then
+                for _, v in pairs(uvs) do
+                    if type(v) == "string" and v:match(GUID_PATTERN) then cachedSalt = v; return v end
+                end
+            end
+        end
+        return nil
+    end
+
+    local resetRemote = nil
+
+    local function getResetRemote()
+        if resetRemote and resetRemote.Parent then return resetRemote end
+        if not Net then return nil end
+        local job = game.JobId
+        if job ~= "" then
+            local salt = readSalt()
+            if salt then
+                local hashed = sha256(scrambleName("Tools/Cooldown", job) .. salt .. job)
+                local target = "RE/" .. hashed
+                for _, child in ipairs(Net:GetChildren()) do
+                    if child.Name == target then resetRemote = child; return child end
+                end
+            end
+        end
+        for _, child in ipairs(Net:GetChildren()) do
+            if child.Name == "RE/Tools/Cooldown" then resetRemote = child; return child end
+        end
+        return nil
+    end
+
+    local RESET_PAYLOAD = string.pack("<ff", 272, 272)
+    local busy = false
+
+    local function unequipAll()
+        local char = localPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not char or not hum then return end
+        if not char:FindFirstChildOfClass("Tool") then return end
+        local deadline = os.clock() + 0.5
+        repeat
+            hum:UnequipTools()
+            task.wait()
+        until not char:FindFirstChildOfClass("Tool") or os.clock() > deadline
+    end
+
+    local function instantReset()
+        if busy then return false, "busy" end
+        busy = true
+
+        local char = localPlayer.Character
+        local hum  = char and char:FindFirstChildOfClass("Humanoid")
+        unequipAll()
+
+        local remote = getResetRemote()
+        if not remote then
+            busy = false
+            return false, "remote não encontrado"
+        end
+
+        local fire = (rawget(_G, "__V3ntViaGame")) or function(f) return pcall(f) end
+        fire(function() remote:FireServer(RESET_PAYLOAD) end)
+        fire(function() remote:FireServer(RESET_PAYLOAD) end)
+        fire(function() remote:FireServer(RESET_PAYLOAD) end)
+
+        local deadline = os.clock() + 8
+        while true do
+            local stillMine = localPlayer.Character == char
+            if stillMine then stillMine = not (hum and hum.Health <= 0) end
+            if not stillMine or os.clock() >= deadline then break end
+            fire(function() remote:FireServer(RESET_PAYLOAD) end)
+            task.wait()
+        end
+
+        busy = false
+        return true
+    end
+
+    return {
+        instantReset = instantReset,
+        getRemote    = getResetRemote,
+        isBusy       = function() return busy end,
+    }
+end)()
+
+local resetActionRequestId = 0
 local resetActionRequestId = 0
 
 local function resetActionsNow()
     local character = localPlayer.Character
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    if not character or not humanoid or humanoid.Health <= 0 or resetBusy then return end
+    local humanoid  = character and character:FindFirstChildOfClass("Humanoid")
+    if not character or not humanoid or humanoid.Health <= 0 then return end
+    if resetBusy or LuxarReset.isBusy() then return end
 
     resetActionRequestId = resetActionRequestId + 1
     local requestId = resetActionRequestId
     resetAction.Text = "Resetting..."
-    -- Run the same KlausReset sequence asynchronously, as Reset on balloon does.
+
     task.spawn(function()
-        local ok = pcall(KlausReset)
-        if not ok or not resetBusy then
-            if resetAction and resetAction.Parent then resetAction.Text = "Reset" end
+        -- 🔥 1) tenta o Reset via Remote do Luxar
+        local ok = LuxarReset.instantReset()
+
+        -- 🔥 2) se falhar (sem remote / salt), cai no KlausReset original
+        if not ok then
+            pcall(KlausReset)
         end
     end)
 
