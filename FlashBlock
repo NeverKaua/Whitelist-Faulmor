@@ -3547,6 +3547,35 @@ do
         end)
     end
 
+    -- Evita que o guard de efeitos reverta escala ou derrube um ragdoll legítimo.
+    -- A escala é considerada temporária quando difere da captura inicial;
+    -- o guard volta a atuar quando os valores retornarem ao baseline.
+    local function hasActiveCharacterPhysicsEffect(character, humanoid)
+        local state = humanoid:GetState()
+        if state == Enum.HumanoidStateType.Ragdoll
+            or state == Enum.HumanoidStateType.Physics
+            or state == Enum.HumanoidStateType.FallingDown
+            or humanoid.PlatformStand then
+            return true
+        end
+
+        for _, attributeName in ipairs({"GiantPotionActive", "RagdollActive", "IsRagdolled"}) do
+            if character:GetAttribute(attributeName) == true
+                or humanoid:GetAttribute(attributeName) == true then
+                return true
+            end
+        end
+
+        for _, name in ipairs(scaleNames) do
+            local scale = humanoid:FindFirstChild(name)
+            local baseline = baselineScales[name]
+            if scale and baseline and math.abs(scale.Value - baseline) > 0.025 then
+                return true
+            end
+        end
+        return false
+    end
+
     local function guardAuroraEffects(character, humanoid, now)
         if characterController then
             pcall(function()
@@ -3566,35 +3595,43 @@ do
             pcall(function() camera.CameraSubject = humanoid end)
         end
 
-        if humanoid.PlatformStand or humanoid:GetState() == Enum.HumanoidStateType.PlatformStanding then
-            pcall(function()
-                humanoid.PlatformStand = false
-                humanoid.Sit = false
-                humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-            end)
-        end
+        local physicsEffectActive = hasActiveCharacterPhysicsEffect(character, humanoid)
 
-        if baselineHip ~= nil and humanoid.HipHeight ~= baselineHip then
-            pcall(function() humanoid.HipHeight = baselineHip end)
-        end
-        for _, name in ipairs(scaleNames) do
-            local scale = humanoid:FindFirstChild(name)
-            local value = baselineScales[name]
-            if scale and value ~= nil and scale.Value ~= value then
-                pcall(function() scale.Value = value end)
+        -- Não force GettingUp nem altere HipHeight/escala enquanto o personagem
+        -- estiver grande ou em ragdoll: isso causava a disputa de física vertical.
+        if not physicsEffectActive then
+            if humanoid.PlatformStand or humanoid:GetState() == Enum.HumanoidStateType.PlatformStanding then
+                pcall(function()
+                    humanoid.PlatformStand = false
+                    humanoid.Sit = false
+                    humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end)
             end
-        end
-        for part, size in pairs(baselineSizes) do
-            if part.Parent and part.Size ~= size then pcall(function() part.Size = size end) end
-        end
-        for attachment, frame in pairs(baselineAttachmentFrames) do
-            if attachment.Parent and attachment.CFrame ~= frame then
-                pcall(function() attachment.CFrame = frame end)
+
+            if baselineHip ~= nil and humanoid.HipHeight ~= baselineHip then
+                pcall(function() humanoid.HipHeight = baselineHip end)
+            end
+            for _, name in ipairs(scaleNames) do
+                local scale = humanoid:FindFirstChild(name)
+                local value = baselineScales[name]
+                if scale and value ~= nil and scale.Value ~= value then
+                    pcall(function() scale.Value = value end)
+                end
+            end
+            for part, size in pairs(baselineSizes) do
+                if part.Parent and part.Size ~= size then pcall(function() part.Size = size end) end
+            end
+            for attachment, frame in pairs(baselineAttachmentFrames) do
+                if attachment.Parent and attachment.CFrame ~= frame then
+                    pcall(function() attachment.CFrame = frame end)
+                end
             end
         end
 
         for _, item in ipairs(character:GetDescendants()) do
-            if item:IsA("VectorForce") then pcall(function() item:Destroy() end) end
+            if not physicsEffectActive and item:IsA("VectorForce") then
+                pcall(function() item:Destroy() end)
+            end
             if item:IsA("BasePart") and baselineSizes[item] == nil then
                 baselineSizes[item] = item.Size
                 baselineLocalTransparency[item] = item.LocalTransparencyModifier
